@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: smartbudget-backend
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: "gunicorn app:app"
+    envVars:
+      - key: MONGO_URI
+        value: your-mongodb-uri-here
+      - key: SECRET_KEY
+        generateValue: true 
