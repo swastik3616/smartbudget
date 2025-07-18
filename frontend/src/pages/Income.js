@@ -18,11 +18,22 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Checkbox,
+  FormControlLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import { Delete as DeleteIcon, FileDownload as FileDownloadIcon, Add as AddIcon, Edit as EditIcon } from '@mui/icons-material';
 import { incomeAPI } from '../services/api';
 import axios from 'axios';
+
+const recurrenceOptions = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'yearly', label: 'Yearly' }
+];
 
 const Income = () => {
   const [incomeList, setIncomeList] = useState([]);
@@ -34,6 +45,9 @@ const Income = () => {
   const [success, setSuccess] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState(null);
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrence, setRecurrence] = useState('monthly');
+  const [nextOccurrence, setNextOccurrence] = useState('');
 
   useEffect(() => {
     fetchIncome();
@@ -60,11 +74,14 @@ const Income = () => {
       return;
     }
     try {
-      await incomeAPI.add(amount, source, date || new Date().toISOString());
+      await incomeAPI.add(amount, source, date || new Date().toISOString(), isRecurring, recurrence, nextOccurrence);
       setSuccess('Income added successfully!');
       setAmount('');
       setSource('');
       setDate('');
+      setIsRecurring(false);
+      setRecurrence('monthly');
+      setNextOccurrence('');
       fetchIncome();
     } catch (err) {
       setError('Failed to add income.');
@@ -99,11 +116,17 @@ const Income = () => {
   const handleEditOpen = (item) => {
     setEditData({ ...item });
     setEditOpen(true);
+    setIsRecurring(item.is_recurring || false);
+    setRecurrence(item.recurrence || 'monthly');
+    setNextOccurrence(item.next_occurrence ? item.next_occurrence.slice(0, 10) : '');
   };
 
   const handleEditClose = () => {
     setEditOpen(false);
     setEditData(null);
+    setIsRecurring(false);
+    setRecurrence('monthly');
+    setNextOccurrence('');
   };
 
   const handleEditChange = (e) => {
@@ -117,7 +140,10 @@ const Income = () => {
       await axios.put(`/api/income/${editData._id}`, {
         amount: editData.amount,
         source: editData.source,
-        date: editData.date
+        date: editData.date,
+        is_recurring: editData.is_recurring,
+        recurrence: editData.recurrence,
+        next_occurrence: editData.next_occurrence
       });
       setSuccess('Income updated successfully!');
       setEditOpen(false);
@@ -173,6 +199,38 @@ const Income = () => {
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
+            <Grid item xs={12} sm={3}>
+              <FormControlLabel
+                control={<Checkbox checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} />}
+                label="Recurring"
+              />
+            </Grid>
+            {isRecurring && (
+              <>
+                <Grid item xs={12} sm={3}>
+                  <Select
+                    value={recurrence}
+                    onChange={e => setRecurrence(e.target.value)}
+                    fullWidth
+                    displayEmpty
+                  >
+                    {recurrenceOptions.map(opt => (
+                      <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                    ))}
+                  </Select>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    label="Next Occurrence"
+                    type="date"
+                    value={nextOccurrence}
+                    onChange={e => setNextOccurrence(e.target.value)}
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+              </>
+            )}
             <Grid item xs={12} sm={3}>
               <Button
                 type="submit"
@@ -283,6 +341,37 @@ const Income = () => {
             fullWidth
             InputLabelProps={{ shrink: true }}
           />
+          <FormControlLabel
+            control={<Checkbox checked={editData?.is_recurring || false} onChange={e => setEditData({ ...editData, is_recurring: e.target.checked })} />}
+            label="Recurring"
+          />
+          {editData?.is_recurring && (
+            <>
+              <Select
+                margin="dense"
+                label="Recurrence"
+                name="recurrence"
+                value={editData?.recurrence || 'monthly'}
+                onChange={handleEditChange}
+                fullWidth
+                displayEmpty
+              >
+                {recurrenceOptions.map(opt => (
+                  <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                ))}
+              </Select>
+              <TextField
+                margin="dense"
+                label="Next Occurrence"
+                name="next_occurrence"
+                type="date"
+                value={editData?.next_occurrence ? editData.next_occurrence.slice(0, 10) : ''}
+                onChange={handleEditChange}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleEditClose}>Cancel</Button>

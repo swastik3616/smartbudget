@@ -14,7 +14,8 @@ import {
   Dashboard as DashboardIcon,
   TrendingUp as IncomeIcon,
   TrendingDown as ExpenseIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  AccountBalanceWallet as BudgetIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -25,6 +26,7 @@ const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
   { text: 'Income', icon: <IncomeIcon />, path: '/income' },
   { text: 'Expenses', icon: <ExpenseIcon />, path: '/expenses' },
+  { text: 'Budget', icon: <BudgetIcon />, path: '/budget' },
 ];
 
 const Sidebar = () => {

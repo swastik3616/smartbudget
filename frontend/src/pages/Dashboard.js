@@ -17,7 +17,16 @@ import {
   Tooltip as MuiTooltip,
   useTheme,
   ToggleButton,
-  ToggleButtonGroup
+  ToggleButtonGroup,
+  Alert,
+  LinearProgress,
+  TableContainer,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Alert as MuiAlert
 } from '@mui/material';
 import {
   AccountBalance as BalanceIcon,
@@ -29,7 +38,7 @@ import {
   ArrowUpward,
   ArrowDownward
 } from '@mui/icons-material';
-import { incomeAPI, expenseAPI, transactionAPI } from '../services/api';
+import { incomeAPI, expenseAPI, transactionAPI, dashboardAPI } from '../services/api';
 import { Pie, Bar } from 'react-chartjs-2';
 import { Chart, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
 import { useAuth } from '../context/AuthContext';
@@ -65,11 +74,17 @@ const getTimeOfDay = () => {
   return 'Good evening';
 };
 
+const months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
+
 const Dashboard = () => {
   const [summary, setSummary] = useState({
     totalIncome: 0,
     totalExpenses: 0,
-    balance: 0
+    balance: 0,
+    budgetProgress: [],
   });
   const [recentTransactions, setRecentTransactions] = useState({
     income: [],
@@ -80,13 +95,17 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [trend, setTrend] = useState({ income: 0, expenses: 0, balance: 0 });
   const [trendView, setTrendView] = useState('monthly');
+  const [dashboardAlerts, setDashboardAlerts] = useState([]);
+  const [chartView, setChartView] = useState('monthly');
   const { user } = useAuth();
   const theme = useTheme();
 
   useEffect(() => {
     fetchDashboardData();
+    fetchBudgetProgress();
   }, []);
 
+  // Only fetch detailed data for charts/lists, not for summary
   const fetchDashboardData = async () => {
     try {
       const [incomeRes, expenseRes, recentRes] = await Promise.all([
@@ -94,19 +113,12 @@ const Dashboard = () => {
         expenseAPI.getAll(),
         transactionAPI.getRecent()
       ]);
+      setIncomeData(incomeRes.data);
+      setExpenseData(expenseRes.data);
+      setRecentTransactions(recentRes.data);
+      // Trend calculation can remain if needed for charts
       const incomeArr = incomeRes.data;
       const expenseArr = expenseRes.data;
-      const totalIncome = incomeArr.reduce((sum, item) => sum + item.amount, 0);
-      const totalExpenses = expenseArr.reduce((sum, item) => sum + item.amount, 0);
-      setSummary({
-        totalIncome,
-        totalExpenses,
-        balance: totalIncome - totalExpenses
-      });
-      setRecentTransactions(recentRes.data);
-      setIncomeData(incomeArr);
-      setExpenseData(expenseArr);
-      // Calculate trend (compare this month to last month)
       const now = new Date();
       const thisMonth = now.getMonth();
       const lastMonth = (thisMonth + 11) % 12;
@@ -126,6 +138,22 @@ const Dashboard = () => {
     }
   };
 
+  const fetchBudgetProgress = async () => {
+    try {
+      const res = await dashboardAPI.getSummary();
+      setSummary(s => ({
+        ...s,
+        totalIncome: res.data.total_income,
+        totalExpenses: res.data.total_expenses,
+        balance: res.data.balance,
+        budgetProgress: res.data.budget_progress || [],
+      }));
+      setDashboardAlerts(res.data.alerts || []);
+    } catch (err) {
+      // Optionally handle error
+    }
+  };
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -133,9 +161,35 @@ const Dashboard = () => {
     }).format(amount);
   };
 
-  // Pie chart for income by source
+  // Filter data for the selected period
+  const now = new Date();
+  let filteredIncome = incomeData;
+  let filteredExpenses = expenseData;
+  if (chartView === 'weekly') {
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    filteredIncome = incomeData.filter(i => new Date(i.date) >= startOfWeek);
+    filteredExpenses = expenseData.filter(e => new Date(e.date) >= startOfWeek);
+  } else if (chartView === 'monthly') {
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+    filteredIncome = incomeData.filter(i => {
+      const d = new Date(i.date);
+      return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+    });
+    filteredExpenses = expenseData.filter(e => {
+      const d = new Date(e.date);
+      return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+    });
+  } else if (chartView === 'yearly') {
+    const thisYear = now.getFullYear();
+    filteredIncome = incomeData.filter(i => new Date(i.date).getFullYear() === thisYear);
+    filteredExpenses = expenseData.filter(e => new Date(e.date).getFullYear() === thisYear);
+  }
+
+  // Pie chart data for filtered income/expenses
   const incomeSources = {};
-  incomeData.forEach((item) => {
+  filteredIncome.forEach((item) => {
     incomeSources[item.source] = (incomeSources[item.source] || 0) + item.amount;
   });
   const incomePieData = {
@@ -144,16 +198,20 @@ const Dashboard = () => {
       {
         data: Object.values(incomeSources),
         backgroundColor: [
-          '#1976d2', '#388e3c', '#fbc02d', '#d32f2f', '#7b1fa2', '#0288d1', '#c2185b'
+          theme.palette.primary.main,
+          theme.palette.secondary.main,
+          theme.palette.success.main || '#388e3c',
+          theme.palette.warning.main || '#fbc02d',
+          theme.palette.error.main || '#d32f2f',
+          theme.palette.info.main || '#0288d1',
+          '#7b1fa2',
         ],
         borderWidth: 1,
       },
     ],
   };
-
-  // Pie chart for expenses by category
   const expenseCategories = {};
-  expenseData.forEach((item) => {
+  filteredExpenses.forEach((item) => {
     expenseCategories[item.category] = (expenseCategories[item.category] || 0) + item.amount;
   });
   const expensePieData = {
@@ -162,55 +220,23 @@ const Dashboard = () => {
       {
         data: Object.values(expenseCategories),
         backgroundColor: [
-          '#d32f2f', '#fbc02d', '#388e3c', '#1976d2', '#7b1fa2', '#0288d1', '#c2185b'
+          theme.palette.error.main || '#d32f2f',
+          theme.palette.warning.main || '#fbc02d',
+          theme.palette.success.main || '#388e3c',
+          theme.palette.primary.main,
+          theme.palette.secondary.main,
+          theme.palette.info.main || '#0288d1',
+          '#7b1fa2',
         ],
         borderWidth: 1,
       },
     ],
   };
-
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
-  const incomeByMonth = Array(12).fill(0);
-  const expenseByMonth = Array(12).fill(0);
-  incomeData.forEach((item) => {
-    const date = new Date(item.date);
-    if (!isNaN(date)) incomeByMonth[date.getMonth()] += item.amount;
-  });
-  expenseData.forEach((item) => {
-    const date = new Date(item.date);
-    if (!isNaN(date)) expenseByMonth[date.getMonth()] += item.amount;
-  });
-  const barData = {
-    labels: months,
-    datasets: [
-      {
-        type: 'bar',
-        label: 'Income',
-        backgroundColor: '#1976d2',
-        data: incomeByMonth,
-        borderRadius: 6,
-        barPercentage: 0.6
-      },
-      {
-        type: 'bar',
-        label: 'Expenses',
-        backgroundColor: '#d32f2f',
-        data: expenseByMonth,
-        borderRadius: 6,
-        barPercentage: 0.6
-      },
-    ],
-  };
-
-  // Bar chart data for toggle
-  let barLabels = months;
-  let incomeBar = incomeByMonth;
-  let expenseBar = expenseByMonth;
-  if (trendView === 'weekly') {
-    // Group by last 7 days
+  // Bar chart data for the selected period
+  let barLabels = [];
+  let incomeBar = [];
+  let expenseBar = [];
+  if (chartView === 'weekly') {
     barLabels = Array(7).fill('').map((_, i) => {
       const d = new Date(); d.setDate(d.getDate() - (6 - i));
       return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
@@ -220,19 +246,30 @@ const Dashboard = () => {
     for (let i = 0; i < 7; i++) {
       const d = new Date(); d.setDate(d.getDate() - (6 - i));
       const day = d.toISOString().slice(0, 10);
-      incomeBar[i] = incomeData.filter(e => e.date && e.date.slice(0, 10) === day).reduce((sum, e) => sum + e.amount, 0);
-      expenseBar[i] = expenseData.filter(e => e.date && e.date.slice(0, 10) === day).reduce((sum, e) => sum + e.amount, 0);
+      incomeBar[i] = filteredIncome.filter(e => e.date && e.date.slice(0, 10) === day).reduce((sum, e) => sum + e.amount, 0);
+      expenseBar[i] = filteredExpenses.filter(e => e.date && e.date.slice(0, 10) === day).reduce((sum, e) => sum + e.amount, 0);
     }
-  } else if (trendView === 'yearly') {
-    // Group by year (last 5 years)
-    const thisYear = new Date().getFullYear();
+  } else if (chartView === 'monthly') {
+    barLabels = months;
+    incomeBar = Array(12).fill(0);
+    expenseBar = Array(12).fill(0);
+    filteredIncome.forEach((item) => {
+      const date = new Date(item.date);
+      if (!isNaN(date)) incomeBar[date.getMonth()] += item.amount;
+    });
+    filteredExpenses.forEach((item) => {
+      const date = new Date(item.date);
+      if (!isNaN(date)) expenseBar[date.getMonth()] += item.amount;
+    });
+  } else if (chartView === 'yearly') {
+    const thisYear = now.getFullYear();
     barLabels = Array(5).fill('').map((_, i) => (thisYear - 4 + i).toString());
     incomeBar = Array(5).fill(0);
     expenseBar = Array(5).fill(0);
     for (let i = 0; i < 5; i++) {
       const year = thisYear - 4 + i;
-      incomeBar[i] = incomeData.filter(e => new Date(e.date).getFullYear() === year).reduce((sum, e) => sum + e.amount, 0);
-      expenseBar[i] = expenseData.filter(e => new Date(e.date).getFullYear() === year).reduce((sum, e) => sum + e.amount, 0);
+      incomeBar[i] = filteredIncome.filter(e => new Date(e.date).getFullYear() === year).reduce((sum, e) => sum + e.amount, 0);
+      expenseBar[i] = filteredExpenses.filter(e => new Date(e.date).getFullYear() === year).reduce((sum, e) => sum + e.amount, 0);
     }
   }
   const barDataDynamic = {
@@ -256,196 +293,239 @@ const Dashboard = () => {
       },
     ],
   };
-  const handleTrendView = (_, newView) => {
-    if (newView) setTrendView(newView);
+
+  const handleChartView = (_, newView) => {
+    if (newView) setChartView(newView);
   };
 
   if (loading) {
     return <Typography>Loading dashboard...</Typography>;
   }
 
-  // Glassmorphism/gradient card style
-  const cardStyle = {
-    background: 'rgba(255,255,255,0.7)',
-    boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.15)',
-    backdropFilter: 'blur(8px)',
-    borderRadius: 3,
-    border: '1px solid rgba(255,255,255,0.18)',
-    position: 'relative',
-    overflow: 'hidden',
-    minHeight: 120
+  // Chart options for responsiveness and theme
+  const pieOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        labels: {
+          color: theme.palette.text.primary,
+        },
+      },
+    },
+  };
+  const barOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        labels: {
+          color: theme.palette.text.primary,
+        },
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: theme.palette.text.primary },
+        grid: { color: theme.palette.divider },
+      },
+      y: {
+        ticks: { color: theme.palette.text.primary },
+        grid: { color: theme.palette.divider },
+      },
+    },
   };
 
   return (
-    <Box sx={{ maxWidth: 1400, mx: 'auto', px: { xs: 1, sm: 2 }, py: 1, bgcolor: '#f7f9fb', minHeight: '100vh' }}>
-      <Typography variant="h4" fontWeight={700} mb={1.5} mt={1}>
+    <Box sx={{ p: { xs: 1, md: 3 } }}>
+      <Typography variant="h4" fontWeight={700} gutterBottom>
         {getTimeOfDay()}, {user?.username || 'User'}!
       </Typography>
-      <Typography color="text.secondary" mb={2}>
+      <Typography variant="subtitle1" color="text.secondary" gutterBottom>
         Here’s your financial overview
       </Typography>
+      {/* Alerts Banner */}
+      {dashboardAlerts.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {dashboardAlerts.length === 1
+            ? `Alert: ${dashboardAlerts[0].category} - ${dashboardAlerts[0].message}`
+            : `You are over budget in ${dashboardAlerts.length} categories: ` + dashboardAlerts.map(a => `${a.category} (${a.message})`).join(', ')}
+        </Alert>
+      )}
+      {/* KPI Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} md={4}>
-          <Card sx={{ ...cardStyle, minHeight: 160, background: 'linear-gradient(135deg, #43cea2 0%, #185a9d 100%)', color: 'white' }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" mb={2}>
-                <Avatar sx={{ bgcolor: 'white', color: 'primary.main', mr: 2, width: 56, height: 56 }}>
-                  <IncomeIcon sx={{ fontSize: 32 }} />
-                </Avatar>
-                <Typography variant="h6">Total Income</Typography>
+          <Card sx={{ p: 3, boxShadow: 3, borderRadius: 3, height: 180 }}>
+            <Box display="flex" alignItems="center" gap={3}>
+              <BalanceIcon color="primary" sx={{ fontSize: 56 }} />
+              <Box>
+                <Typography variant="subtitle1" color="text.secondary">Balance</Typography>
+                <Typography variant="h4" fontWeight={700}>{formatCurrency(summary.balance)}</Typography>
               </Box>
-              <Typography variant="h3" fontWeight={700} align="right">
-                <AnimatedNumber value={summary.totalIncome} prefix="₹" />
-              </Typography>
-            </CardContent>
+            </Box>
           </Card>
         </Grid>
         <Grid item xs={12} md={4}>
-          <Card sx={{ ...cardStyle, minHeight: 160, background: 'linear-gradient(135deg, #ff512f 0%, #dd2476 100%)', color: 'white' }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" mb={2}>
-                <Avatar sx={{ bgcolor: 'white', color: 'error.main', mr: 2, width: 56, height: 56 }}>
-                  <ExpenseIcon sx={{ fontSize: 32 }} />
-                </Avatar>
-                <Typography variant="h6">Total Expenses</Typography>
+          <Card sx={{ p: 3, boxShadow: 3, borderRadius: 3, height: 180 }}>
+            <Box display="flex" alignItems="center" gap={3}>
+              <IncomeIcon color="success" sx={{ fontSize: 56 }} />
+              <Box>
+                <Typography variant="subtitle1" color="text.secondary">Total Income</Typography>
+                <Typography variant="h4" fontWeight={700}>{formatCurrency(summary.totalIncome)}</Typography>
               </Box>
-              <Typography variant="h3" fontWeight={700} align="right">
-                <AnimatedNumber value={summary.totalExpenses} prefix="₹" />
-              </Typography>
-            </CardContent>
+            </Box>
           </Card>
         </Grid>
         <Grid item xs={12} md={4}>
-          <Card sx={{ ...cardStyle, minHeight: 160, background: 'linear-gradient(135deg, #fc5c7d 0%, #6a82fb 100%)', color: 'white' }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" mb={2}>
-                <Avatar sx={{ bgcolor: 'white', color: 'info.main', mr: 2, width: 56, height: 56 }}>
-                  <BalanceIcon sx={{ fontSize: 32 }} />
-                </Avatar>
-                <Typography variant="h6">Balance</Typography>
+          <Card sx={{ p: 3, boxShadow: 3, borderRadius: 3, height: 180 }}>
+            <Box display="flex" alignItems="center" gap={3}>
+              <ExpenseIcon color="error" sx={{ fontSize: 56 }} />
+              <Box>
+                <Typography variant="subtitle1" color="text.secondary">Total Expenses</Typography>
+                <Typography variant="h4" fontWeight={700}>{formatCurrency(summary.totalExpenses)}</Typography>
               </Box>
-              <Typography variant="h3" fontWeight={700} align="right">
-                <AnimatedNumber value={summary.balance} prefix="₹" />
-              </Typography>
-            </CardContent>
+            </Box>
           </Card>
         </Grid>
       </Grid>
-      <Divider sx={{ mb: 3 }} />
-
-      {/* --- Trends & Charts Section --- */}
-      <Typography variant="h5" fontWeight={600} mb={2}>Trends & Charts</Typography>
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, boxShadow: 1, borderRadius: 2, minHeight: 400 }}>
-            <Box display="flex" alignItems="center" mb={2}>
-              <PieChartIcon color="primary" sx={{ mr: 1 }} />
-              <Typography variant="h6">Income by Source</Typography>
+      {/* Budget Progress Section */}
+      <Card sx={{ mb: 3, p: 2, boxShadow: 2, borderRadius: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>Budget Progress (This Month)</Typography>
+          {summary.budgetProgress && summary.budgetProgress.length > 0 ? (
+            <Box sx={{ overflowX: 'auto' }}>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Category</TableCell>
+                      <TableCell>Budget</TableCell>
+                      <TableCell>Spent</TableCell>
+                      <TableCell>Progress</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {summary.budgetProgress.map(bp => {
+                      const percent = bp.budget > 0 ? Math.min(100, (bp.spent / bp.budget) * 100) : 100;
+                      return (
+                        <TableRow key={bp.category}>
+                          <TableCell>{bp.category}</TableCell>
+                          <TableCell>{formatCurrency(bp.budget)}</TableCell>
+                          <TableCell>{formatCurrency(bp.spent)}</TableCell>
+                          <TableCell sx={{ minWidth: 120 }}>
+                            <LinearProgress
+                              variant="determinate"
+                              value={percent}
+                              color={bp.over_under > 0 ? 'error' : 'success'}
+                              sx={{ height: 10, borderRadius: 5 }}
+                            />
+                            <Typography variant="caption">{percent.toFixed(0)}%</Typography>
+                          </TableCell>
+                          <TableCell>
+                            {bp.over_under > 0 ? (
+                              <Chip label="Over" color="error" size="small" />
+                            ) : (
+                              <Chip label="Under" color="success" size="small" />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             </Box>
-            <Divider sx={{ mb: 2 }} />
-            <Pie data={incomePieData} options={{ plugins: { legend: { position: 'bottom' } }, animation: { animateRotate: true, animateScale: true }, interaction: { mode: 'nearest', intersect: true } }} />
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, boxShadow: 1, borderRadius: 2, minHeight: 400 }}>
-            <Box display="flex" alignItems="center" mb={2}>
-              <PieChartIcon color="error" sx={{ mr: 1 }} />
-              <Typography variant="h6">Expenses by Category</Typography>
-            </Box>
-            <Divider sx={{ mb: 2 }} />
-            <Pie data={expensePieData} options={{ plugins: { legend: { position: 'bottom' } }, animation: { animateRotate: true, animateScale: true }, interaction: { mode: 'nearest', intersect: true } }} />
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={12}>
-          <Paper sx={{ p: 3, boxShadow: 1, borderRadius: 2, minHeight: 400 }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-              <Box display="flex" alignItems="center">
-                <BarChartIcon color="secondary" sx={{ mr: 1 }} />
-                <Typography variant="h6">Income & Expenses Over Time</Typography>
+          ) : (
+            <Typography color="text.secondary">No budget data for this month.</Typography>
+          )}
+        </CardContent>
+      </Card>
+      {/* Charts Section with Toggle */}
+      <Card sx={{ p: 2, boxShadow: 2, borderRadius: 3, mb: 3 }}>
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+          <Typography variant="h6" fontWeight={600}>Analytics</Typography>
+          <ToggleButtonGroup
+            value={chartView}
+            exclusive
+            onChange={handleChartView}
+            size="small"
+            sx={{ bgcolor: 'background.paper', borderRadius: 2 }}
+          >
+            <ToggleButton value="weekly">Weekly</ToggleButton>
+            <ToggleButton value="monthly">Monthly</ToggleButton>
+            <ToggleButton value="yearly">Yearly</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={4}>
+            <Card sx={{ p: 2, boxShadow: 1, borderRadius: 3 }}>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>Income by Source</Typography>
+              <Box sx={{ height: { xs: 320, md: 400 }, width: '100%' }}>
+                <Pie data={incomePieData} height={350} width={350} />
               </Box>
-              <ToggleButtonGroup
-                value={trendView}
-                exclusive
-                onChange={handleTrendView}
-                size="small"
-                color="primary"
-              >
-                <ToggleButton value="weekly">Weekly</ToggleButton>
-                <ToggleButton value="monthly">Monthly</ToggleButton>
-                <ToggleButton value="yearly">Yearly</ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
-            <Divider sx={{ mb: 2 }} />
-            <Bar data={barDataDynamic} options={{ responsive: true, plugins: { legend: { position: 'bottom' } }, animation: { duration: 1200 }, interaction: { mode: 'index', intersect: false }, tooltips: { enabled: true } }} />
-          </Paper>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Card sx={{ p: 2, boxShadow: 1, borderRadius: 3 }}>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>Expenses by Category</Typography>
+              <Box sx={{ height: { xs: 320, md: 400 }, width: '100%' }}>
+                <Pie data={expensePieData} height={350} width={350} />
+              </Box>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Card sx={{ p: 2, boxShadow: 1, borderRadius: 3 }}>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>Income vs Expenses (Bar Chart)</Typography>
+              <Box sx={{ width: '100.2%', height: 400, minWidth: 0 }}>
+                <Bar
+                  data={barDataDynamic}
+                  options={{
+                    maintainAspectRatio: false,
+                    responsive: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { x: { ticks: { autoSkip: false } } }
+                  }}
+                />
+              </Box>
+            </Card>
+          </Grid>
         </Grid>
-      </Grid>
-      <Divider sx={{ mb: 3 }} />
-
-      {/* --- Recent Transactions Section --- */}
-      <Typography variant="h5" fontWeight={600} mb={2}>Recent Transactions</Typography>
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, boxShadow: 1, borderRadius: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Recent Income
-            </Typography>
-            <List>
-              {recentTransactions.income.map((item) => (
-                <ListItem key={item._id}>
-                  <ListItemIcon>
-                    <IncomeIcon color="success" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.source}
-                    secondary={formatCurrency(item.amount)}
-                  />
-                  <Chip 
-                    label={formatCurrency(item.amount)} 
-                    color="success" 
-                    size="small" 
-                  />
-                </ListItem>
-              ))}
-              {recentTransactions.income.length === 0 && (
-                <ListItem>
-                  <ListItemText secondary="No recent income" />
-                </ListItem>
-              )}
-            </List>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2, boxShadow: 1, borderRadius: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Recent Expenses
-            </Typography>
-            <List>
-              {recentTransactions.expenses.map((item) => (
-                <ListItem key={item._id}>
-                  <ListItemIcon>
-                    <ExpenseIcon color="error" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.category}
-                    secondary={item.description || 'No description'}
-                  />
-                  <Chip 
-                    label={formatCurrency(item.amount)} 
-                    color="error" 
-                    size="small" 
-                  />
-                </ListItem>
-              ))}
-              {recentTransactions.expenses.length === 0 && (
-                <ListItem>
-                  <ListItemText secondary="No recent expenses" />
-                </ListItem>
-              )}
-            </List>
-          </Paper>
-        </Grid>
-      </Grid>
+      </Card>
+      {/* Recent Transactions Section */}
+      <Card sx={{ p: 2, boxShadow: 2, borderRadius: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>Recent Transactions</Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" color="text.secondary">Recent Income</Typography>
+              <List>
+                {recentTransactions.income && recentTransactions.income.length > 0 ? recentTransactions.income.map((item) => (
+                  <ListItem key={item._id}>
+                    <ListItemIcon><IncomeIcon color="success" /></ListItemIcon>
+                    <ListItemText
+                      primary={item.source}
+                      secondary={`${formatCurrency(item.amount)} • ${item.date ? new Date(item.date).toLocaleDateString() : ''}`}
+                    />
+                  </ListItem>
+                )) : <ListItem><ListItemText primary="No recent income." /></ListItem>}
+              </List>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" color="text.secondary">Recent Expenses</Typography>
+              <List>
+                {recentTransactions.expenses && recentTransactions.expenses.length > 0 ? recentTransactions.expenses.map((item) => (
+                  <ListItem key={item._id}>
+                    <ListItemIcon><ExpenseIcon color="error" /></ListItemIcon>
+                    <ListItemText
+                      primary={item.category}
+                      secondary={`${formatCurrency(item.amount)} • ${item.date ? new Date(item.date).toLocaleDateString() : ''}`}
+                    />
+                  </ListItem>
+                )) : <ListItem><ListItemText primary="No recent expenses." /></ListItem>}
+              </List>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
       {/* --- Quick Action Floating Button --- */}
       <MuiTooltip title="Add Income or Expense" placement="left">
         <Fab color="primary" sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1000, boxShadow: 4 }} href="/income">

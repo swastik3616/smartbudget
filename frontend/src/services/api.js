@@ -31,25 +31,21 @@ export const authAPI = {
 // Income API
 export const incomeAPI = {
   getAll: () => api.get('/income'),
-  
-  add: (amount, source, date) => 
-    api.post('/income', { amount, source, date }),
-  
+  add: (amount, source, date, is_recurring, recurrence, next_occurrence) =>
+    api.post('/income', { amount, source, date, is_recurring, recurrence, next_occurrence }),
   delete: (id) => api.delete(`/income/${id}`),
-  
   export: () => api.get('/income/export', { responseType: 'blob' }),
+  filter: (params) => api.get('/income/filter', { params }),
 };
 
 // Expense API
 export const expenseAPI = {
   getAll: () => api.get('/expenses'),
-  
-  add: (amount, category, description, date) => 
-    api.post('/expenses', { amount, category, description, date }),
-  
+  add: (amount, category, description, date, is_recurring, recurrence, next_occurrence) =>
+    api.post('/expenses', { amount, category, description, date, is_recurring, recurrence, next_occurrence }),
   delete: (id) => api.delete(`/expenses/${id}`),
-  
   export: () => api.get('/expenses/export', { responseType: 'blob' }),
+  filter: (params) => api.get('/expenses/filter', { params }),
 };
 
 // Transactions API
@@ -60,6 +56,22 @@ export const transactionAPI = {
 // Health check
 export const healthAPI = {
   check: () => api.get('/health'),
+};
+
+// Avatar/Profile API
+export const avatarAPI = {
+  get: () => api.get('/profile/avatar'),
+  update: (profilePic, emoji) => api.post('/profile/avatar', { profilePic, emoji }),
+};
+
+// Dashboard API
+export const dashboardAPI = {
+  getSummary: () => api.get('/dashboard/summary'),
+};
+
+// Categories API
+export const categoryAPI = {
+  getExpenseCategories: () => api.get('/expense-categories'),
 };
 
 export default api; 
