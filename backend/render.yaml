@@ -7,6 +7,6 @@ services:
     startCommand: "gunicorn app:app"
     envVars:
       - key: MONGO_URI
-        value: your-mongodb-uri-here
+        value: mongodb+srv://swastikkulkarni737:FNhtqkYXsaYUcDT0@cluster0.4uof0n6.mongodb.net/smartbudget?retryWrites=true&w=majority&appName=Cluster0
       - key: SECRET_KEY
-        generateValue: true 
+        generateValue: true
